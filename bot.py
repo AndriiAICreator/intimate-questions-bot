@@ -12,7 +12,26 @@ load_dotenv()
 
 # Глобальні змінні для зберігання даних
 games: Dict[str, dict] = {}
-questions: List[dict] = []
+all_questions: Dict[str, List[dict]] = {}
+
+# Конфігурація категорій питань
+QUESTION_CATEGORIES = {
+    'intimate': {
+        'name': '🔥 Інтимні питання',
+        'file': 'questions.csv',
+        'description': 'Глибокі питання про інтимність та сексуальність'
+    },
+    'life': {
+        'name': '🌟 Про життя',
+        'file': 'life_questions.csv',
+        'description': 'Філософські питання про щастя, мораль та сенс життя'
+    },
+    'cringe': {
+        'name': '😅 Трохи крінжові питання',
+        'file': 'cringe_questions.csv',
+        'description': 'Абсурдні та кумедні ситуації для сміху'
+    }
+}
 
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
@@ -21,29 +40,29 @@ class GameStates:
     FINISHED = "finished"
 
 def load_questions():
-    """Завантажити питання з CSV файлу"""
-    global questions
-    try:
-        with open('questions.csv', 'r', encoding='utf-8') as file:
-            reader = csv.DictReader(file)
-            questions = list(reader)
-        print(f"✅ Завантажено {len(questions)} питань")
-    except FileNotFoundError:
-        print("❌ Файл questions.csv не знайдено!")
-        questions = []
-    except Exception as e:
-        print(f"❌ Помилка завантаження питань: {e}")
-        questions = []
+    """Завантажити питання з усіх файлів категорій"""
+    global all_questions
+    total_loaded = 0
+    for category_key, details in QUESTION_CATEGORIES.items():
+        try:
+            with open(details['file'], 'r', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                category_questions = list(reader)
+                all_questions[category_key] = category_questions
+                print(f"✅ Завантажено {len(category_questions)} питань з категорії '{details['name']}' ({details['file']})")
+                total_loaded += len(category_questions)
+        except FileNotFoundError:
+            print(f"❌ Файл {details['file']} не знайдено!")
+            all_questions[category_key] = []
+        except Exception as e:
+            print(f"❌ Помилка завантаження питань з {details['file']}: {e}")
+            all_questions[category_key] = []
+    print(f"📊 Всього завантажено: {total_loaded} питань.")
+
 
 def generate_game_code() -> str:
     """Генерувати унікальний код гри"""
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
-
-def get_random_question() -> Optional[dict]:
-    """Отримати випадкове питання"""
-    if not questions:
-        return None
-    return random.choice(questions)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start - головне меню"""
@@ -73,14 +92,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Створити нову гру"""
+    """Показати меню вибору категорії для нової гри"""
     query = update.callback_query
     await query.answer()
+
+    keyboard = []
+    for key, details in QUESTION_CATEGORIES.items():
+        keyboard.append([InlineKeyboardButton(details['name'], callback_data=f'create_cat_{key}')])
     
+    keyboard.append([InlineKeyboardButton("🔙 Назад до меню", callback_data='back_to_menu')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        "✨ *Вибір категорії гри*\n\n"
+        "Будь ласка, оберіть категорію питань для вашої нової гри:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def create_game_with_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Створити нову гру з обраною категорією"""
+    query = update.callback_query
+    await query.answer()
+
+    category_key = query.data.split('_')[-1]
+    if category_key not in QUESTION_CATEGORIES:
+        await query.edit_message_text("❌ Помилка: Невідома категорія.")
+        return
+
     game_code = generate_game_code()
     user_id = query.from_user.id
     user_name = query.from_user.first_name or "Гравець"
-    
+
     # Створити нову гру
     games[game_code] = {
         'code': game_code,
@@ -88,12 +131,13 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'state': GameStates.WAITING_FOR_PLAYERS,
         'players': [{'id': user_id, 'name': user_name}],
         'scores': {user_id: 0},
+        'category': category_key,  # Зберігаємо обрану категорію
         'current_question': None,
         'used_questions': [],
         'votes': {},
         'round_number': 0
     }
-    
+
     keyboard = [
         [InlineKeyboardButton("▶️ Почати гру", callback_data=f'start_game_{game_code}')],
         [InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{game_code}')],
@@ -101,9 +145,12 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    category_name = QUESTION_CATEGORIES[category_key]['name']
+    
     await query.edit_message_text(
         f"🎮 *Гру створено!*\n\n"
-        f"🔑 *Код кімнати:* `{game_code}`\n\n"
+        f"🔑 *Код кімнати:* `{game_code}`\n"
+        f"📚 *Категорія:* {category_name}\n\n"
         f"👤 *Створив:* {user_name}\n"
         f"👥 *Гравців:* 1\n\n"
         f"📋 Поділіться цим кодом з друзями!\n"
@@ -111,6 +158,7 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
+
 
 async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приєднатися до гри"""
@@ -263,11 +311,14 @@ async def start_game_round(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("❌ Потрібно мінімум 2 гравці!", show_alert=True)
         return
     
-    # Отримати нове питання
-    available_questions = [q for q in questions if q['id'] not in game['used_questions']]
+    # Отримати нове питання з правильної категорії
+    category_key = game['category']
+    question_pool = all_questions.get(category_key, [])
+    
+    available_questions = [q for q in question_pool if q['id'] not in game['used_questions']]
     
     if not available_questions:
-        # Якщо питання закінчилися
+        # Якщо питання в цій категорії закінчилися
         await finish_game(update, context, game_code)
         return
     
@@ -500,8 +551,8 @@ async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📖 *ПРАВИЛА ГРИ*\n\n"
         "🎯 *Мета:* Отримати найбільше балів за рахунок цікавих відповідей\n\n"
         "🎮 *Як грати:*\n"
-        "1. Створіть кімнату або приєднайтесь за кодом\n"
-        "2. Потрібно мінімум 3 гравці\n"
+        "1. Створіть кімнату, обравши категорію, або приєднайтесь за кодом\n"
+        "2. Потрібно мінімум 2 гравці\n"
         "3. Бот надсилає питання всім одночасно\n"
         "4. Обговорюйте відповіді разом\n"
         "5. Потім кожен голосує за найкращу відповідь\n"
@@ -585,10 +636,6 @@ def main():
     # Завантажити питання
     load_questions()
     
-    if not questions:
-        print("❌ Не вдалося завантажити питання. Перевірте файл questions.csv")
-        return
-    
     # Отримати токен з environment
     token = os.getenv('BOT_TOKEN')
     if not token:
@@ -603,6 +650,7 @@ def main():
     
     # Додати обробники callback_query
     application.add_handler(CallbackQueryHandler(create_game, pattern='create_game'))
+    application.add_handler(CallbackQueryHandler(create_game_with_category, pattern=r'create_cat_\w+'))
     application.add_handler(CallbackQueryHandler(join_game, pattern='join_game'))
     application.add_handler(CallbackQueryHandler(show_players, pattern=r'show_players_\w+'))
     application.add_handler(CallbackQueryHandler(start_game_round, pattern=r'start_game_\w+'))
@@ -618,7 +666,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_join_code))
     
     print("🚀 Бот запущено!")
-    print(f"📊 Завантажено {len(questions)} питань")
+    # print(f"📊 Завантажено {len(questions)} питань")
     print("💬 Надішліть /start боту для початку гри")
     
     # Запустити бота
