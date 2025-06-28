@@ -43,11 +43,13 @@ class QuestionManager:
                 reader = csv.DictReader(file)
                 questions = [dict(row) for row in reader]
                 self.questions_cache[category] = questions
-                print(f"Завантажено {len(questions)} питань з категорії '{category}'")
+                print(f"✅ Завантажено {len(questions)} питань з категорії '{category}' ({filename})")
         except FileNotFoundError:
-            print(f"Файл {filename} не знайдено!")
+            print(f"❌ Файл {filename} не знайдено! Перевірте чи файл існує.")
+            print(f"Поточна директорія: {os.getcwd()}")
+            print(f"Файли в директорії: {os.listdir('.')}")
         except Exception as e:
-            print(f"Помилка завантаження {filename}: {e}")
+            print(f"❌ Помилка завантаження {filename}: {e}")
         
         return questions
     
@@ -103,7 +105,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Що бажаєте зробити?
 """
     
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+    # Перевіряємо чи це callback query чи звичайне повідомлення
+    if update.callback_query:
+        await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def create_game_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показує вибір категорії для нової гри"""
@@ -340,6 +346,7 @@ async def next_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обробник всіх callback кнопок"""
     query = update.callback_query
+    await query.answer()  # Завжди відповідаємо на callback
     
     if query.data == "create_game":
         await create_game_category_selection(update, context)
@@ -347,13 +354,171 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await create_game(update, context)
     elif query.data == "join_game":
         await join_game_input(update, context)
+    elif query.data == "about":
+        await show_about(update, context)
     elif query.data == "main_menu":
         await start(update, context)
     elif query.data.startswith("start_game_"):
         await start_game(update, context)
     elif query.data.startswith("next_question_"):
         await next_question(update, context)
-    # Додайте інші обробники за потреби
+    elif query.data.startswith("game_stats_"):
+        await show_game_stats(update, context)
+    elif query.data.startswith("end_game_"):
+        await end_game(update, context)
+    elif query.data.startswith("close_game_"):
+        await close_game(update, context)
+    elif query.data.startswith("leave_game_"):
+        await leave_game(update, context)
+    else:
+        await query.edit_message_text("❌ Невідома команда!")
+
+async def show_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує інформацію про бота"""
+    query = update.callback_query
+    
+    text = """
+ℹ️ **Про бота**
+
+Цей бот створений для пар що хочуть краще пізнати один одного через цікаві питання.
+
+📊 **Категорії питань:**
+🔥 **Інтимні питання** - 100 питань про сексуальність
+🌟 **Про життя** - 100 філософських питань  
+😅 **Трохи крінжові питання** - 100 кумедних питань
+
+🎮 **Як грати:**
+1. Створіть гру та оберіть категорію
+2. Поділіться ID з партнером
+3. Відповідайте на питання по черзі
+4. Відкривайте один одного!
+
+Розробник: @ваш_username
+"""
+    
+    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def show_game_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує статистику гри"""
+    query = update.callback_query
+    game_id = query.data.replace("game_stats_", "")
+    
+    if game_id not in games:
+        await query.edit_message_text("❌ Гра не знайдена!")
+        return
+    
+    game = games[game_id]
+    category_info = QUESTION_CATEGORIES[game.category]
+    
+    text = f"""
+📊 **Статистика гри**
+
+🎯 **Категорія:** {category_info['name']}
+🆔 **ID гри:** `{game_id}`
+👥 **Гравці:** {len(game.players)}
+📝 **Розглянуто питань:** {len(game.used_questions)}
+🎮 **Статус:** {'Активна' if game.is_active else 'Очікування'}
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("⬅️ Назад до гри", callback_data=f"start_game_{game_id}")],
+        [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Завершує гру"""
+    query = update.callback_query
+    game_id = query.data.replace("end_game_", "")
+    
+    if game_id not in games:
+        await query.edit_message_text("❌ Гра не знайдена!")
+        return
+    
+    game = games[game_id]
+    category_info = QUESTION_CATEGORIES[game.category]
+    
+    # Видаляємо гру
+    del games[game_id]
+    
+    text = f"""
+🏁 **Гру завершено!**
+
+Дякуємо за гру! Ви розглянули **{len(game.used_questions)}** питань з категорії **{category_info['name']}**.
+
+Сподіваємося ви краще пізнали один одного! 💕
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("🎯 Нова гра", callback_data="create_game")],
+        [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def close_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Закриває гру (тільки створювач)"""
+    query = update.callback_query
+    game_id = query.data.replace("close_game_", "")
+    
+    if game_id not in games:
+        await query.edit_message_text("❌ Гра не знайдена!")
+        return
+    
+    game = games[game_id]
+    
+    if query.from_user.id != game.creator_id:
+        await query.edit_message_text("❌ Тільки створювач може закрити гру!")
+        return
+    
+    # Видаляємо гру
+    del games[game_id]
+    
+    text = "🚪 **Гру закрито!**\n\nГра була видалена створювачем."
+    
+    keyboard = [
+        [InlineKeyboardButton("🎯 Створити нову гру", callback_data="create_game")],
+        [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def leave_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вийти з гри"""
+    query = update.callback_query
+    game_id = query.data.replace("leave_game_", "")
+    
+    if game_id not in games:
+        await query.edit_message_text("❌ Гра не знайдена!")
+        return
+    
+    game = games[game_id]
+    user_id = query.from_user.id
+    
+    if user_id in game.players:
+        game.players.remove(user_id)
+    
+    text = f"""
+🚪 **Ви вийшли з гри**
+
+ID гри: `{game_id}`
+Гравців залишилося: {len(game.players)}
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("🎯 Створити нову гру", callback_data="create_game")],
+        [InlineKeyboardButton("🏠 Головне меню", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
 def main():
     """Запуск бота"""
