@@ -13,23 +13,24 @@ load_dotenv()
 # Глобальні змінні для зберігання даних
 games: Dict[str, dict] = {}
 all_questions: Dict[str, List[dict]] = {}
+all_prizes: Dict[str, List[str]] = {}
 
 # Конфігурація категорій питань
 QUESTION_CATEGORIES = {
     'intimate': {
         'name': '🔥 Інтимні питання',
         'file': 'questions.csv',
-        'description': 'Глибокі питання про інтимність та сексуальність'
+        'prize_file': 'winner_prizes_intim.csv'
     },
     'life': {
         'name': '🌟 Про життя',
         'file': 'life_questions.csv',
-        'description': 'Філософські питання про щастя, мораль та сенс життя'
+        'prize_file': 'winner_prizes_life.csv'
     },
     'cringe': {
         'name': '😅 Трохи крінжові питання',
         'file': 'cringe_questions.csv',
-        'description': 'Абсурдні та кумедні ситуації для сміху'
+        'prize_file': 'winner_prizes_krin.csv'
     }
 }
 
@@ -63,6 +64,30 @@ def load_questions():
 def generate_game_code() -> str:
     """Генерувати унікальний код гри"""
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
+
+
+def load_prizes():
+    """Завантажити призи для переможців з файлів категорій"""
+    global all_prizes
+    print("\nЗавантаження призів для переможців...")
+    for category_key, details in QUESTION_CATEGORIES.items():
+        prize_file = details.get('prize_file')
+        if not prize_file:
+            continue
+        try:
+            with open(prize_file, 'r', encoding='utf-8') as file:
+                reader = csv.DictReader(file)
+                # Припускаємо, що колонка з призом називається 'prize'
+                prizes = [row['prize'] for row in reader]
+                all_prizes[category_key] = prizes
+                print(f"✅ Завантажено {len(prizes)} призів для категорії '{details['name']}'")
+        except FileNotFoundError:
+            print(f"❌ Файл призів {prize_file} не знайдено!")
+            all_prizes[category_key] = []
+        except Exception as e:
+            print(f"❌ Помилка завантаження призів з {prize_file}: {e}")
+            all_prizes[category_key] = []
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start - головне меню"""
@@ -494,7 +519,7 @@ async def skip_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_game_round(update, context)
 
 async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_code: str = None):
-    """Завершити гру"""
+    """Завершити гру та показати результати з призом для переможця"""
     if not game_code:
         query = update.callback_query
         await query.answer()
@@ -512,14 +537,33 @@ async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_c
     final_results = sorted(game['scores'].items(), key=lambda x: x[1], reverse=True)
     
     results_text = f"🎉 *ФІНАЛЬНІ РЕЗУЛЬТАТИ ГРИ {game_code}*\n\n"
+    winner_name = "Ніхто"
     
+    if final_results:
+        winner_id = final_results[0][0]
+        winner_name = next((player['name'] for player in game['players'] if player['id'] == winner_id), "Невідомий")
+
     for i, (player_id, score) in enumerate(final_results):
         player_name = next(player['name'] for player in game['players'] if player['id'] == player_id)
         medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
         results_text += f"{medal} {i+1}. {player_name}: {score} балів\n"
     
-    results_text += f"\n🎯 Всього було {game['round_number']} раундів\n"
-    results_text += f"🎮 Дякуємо за гру!"
+    results_text += f"\n🎯 Всього було {game['round_number']} раундів."
+
+    # --- Логіка додавання призу ---
+    category_key = game.get('category')
+    prizes_for_category = all_prizes.get(category_key, [])
+    
+    if prizes_for_category:
+        random_prize = random.choice(prizes_for_category)
+        prize_text = (
+            f"\n\n🏆 *Приз для переможця, {winner_name}!* 🏆\n\n"
+            f"_{random_prize}_"
+        )
+        results_text += prize_text
+    # --- Кінець логіки призу ---
+
+    results_text += f"\n\n🎮 Дякуємо за гру!"
     
     keyboard = [
         [InlineKeyboardButton("🔄 Нова гра", callback_data='create_game')],
@@ -540,7 +584,8 @@ async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_c
             print(f"Не вдалося надіслати фінальні результати гравцю {player['id']}: {e}")
     
     # Видалити гру з пам'яті
-    del games[game_code]
+    if game_code in games:
+        del games[game_code]
 
 async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показати правила гри"""
@@ -635,6 +680,7 @@ def main():
     """Головна функція запуску бота"""
     # Завантажити питання
     load_questions()
+    load_prizes()
     
     # Отримати токен з environment
     token = os.getenv('BOT_TOKEN')
