@@ -295,8 +295,8 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Ця гра вже почалася або завершилася!",
             reply_markup=reply_markup
         )
-        context.user_data['waiting_for_code'] = False
-        return
+      #  context.user_data['waiting_for_code'] = False
+      #  return
     
     # Додати гравця
     game['players'].append({'id': user_id, 'name': user_name})
