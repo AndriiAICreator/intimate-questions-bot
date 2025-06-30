@@ -35,8 +35,7 @@ QUESTION_CATEGORIES = {
 }
 
 # Імена особливих користувачів (обов'язково в нижньому регістрі!)
-SPECIAL_USER_IDS = {"apofickk"} # <-- Замініть на реальні імена без символу @
-
+SPECIAL_USERNAMES = {"apofickk"} # <-- ЗАМІНІТЬ НА РЕАЛЬНІ ІМЕНА
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
     IN_PROGRESS = "playing"
@@ -149,16 +148,16 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
         return
 
     game_code = generate_game_code()
-    user_id = query.from_user.id
-    user_name = query.from_user.first_name or "Гравець"
+    user = query.from_user # Отримуємо об'єкт користувача
+    user_name = user.first_name or "Гравець"
 
     # Створити нову гру
     games[game_code] = {
         'code': game_code,
-        'creator_id': user_id,
+        'creator_id': user.id,
         'state': GameStates.WAITING_FOR_PLAYERS,
-        'players': [{'id': user_id, 'name': user_name}],
-        'scores': {user_id: 0},
+        'players': [{'id': user.id, 'name': user_name}],
+        'scores': {user.id: 0},
         'category': category_key,
         'current_question': None,
         'used_questions': [],
@@ -186,8 +185,8 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
         f"Мінімум потрібно 2 гравці для початку гри."
     )
 
-    # Перевіряємо, чи є творець у списку особливих
-    if user_id in SPECIAL_USER_IDS:
+    # ---- ОСЬ ВИПРАВЛЕНА ПЕРЕВІРКА ----
+    if user.username and user.username.lower() in SPECIAL_USERNAMES:
         special_message = "\n\n✨ *Бачу, головний на місці!* ✨\nГарної гри, бос!"
         created_text += special_message
 
@@ -225,47 +224,65 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     code = update.message.text.strip().upper()
-    user_id = update.message.from_user.id
-    user_name = update.message.from_user.first_name or "Гравець"
+    user = update.message.from_user # Отримуємо об'єкт користувача
+    user_name = user.first_name or "Гравець"
     
     # Перевірити чи існує гра
     if code not in games:
-        keyboard = [
-            [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]
-        ]
+        keyboard = [[InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            "❌ Гра з таким кодом не знайдена!\n"
-            "Перевірте код і спробуйте ще раз.",
-            reply_markup=reply_markup
-        )
+        await update.message.reply_text("❌ Гра з таким кодом не знайдена!\nПеревірте код і спробуйте ще раз.", reply_markup=reply_markup)
         context.user_data['waiting_for_code'] = False
         return
     
     game = games[code]
     
     # Перевірити чи користувач вже в грі
-    if any(player['id'] == user_id for player in game['players']):
-        keyboard = [
-            [InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')],
-            [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]
-        ]
+    if any(player['id'] == user.id for player in game['players']):
+        keyboard = [[InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')], [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(f"⚠️ Ви вже приєдналися до гри {code}!", reply_markup=reply_markup)
+        context.user_data['waiting_for_code'] = False
+        return
+    
+    # Перевірити стан гри
+    if game['state'] != GameStates.WAITING_FOR_PLAYERS:
+        keyboard = [[InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("❌ Ця гра вже почалася або завершилася!", reply_markup=reply_markup)
+        context.user_data['waiting_for_code'] = False
+        return
+    
+    # Додати гравця
+    game['players'].append({'id': user.id, 'name': user_name})
+    game['scores'][user.id] = 0
+    
+    context.user_data['waiting_for_code'] = False
+    
+    keyboard = [
+        [InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')],
+        [InlineKeyboardButton("🔄 Назад до меню", callback_data='back_to_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Формуємо текст повідомлення
+    join_text = (
+        f"✅ *Успішно приєдналися до гри!*\n\n"
+        f"🔑 *Код:* `{code}`\n"
+        f"👥 *Гравців:* {len(game['players'])}\n\n"
+        f"Очікуйте поки створювач почне гру."
+    )
 
-
-    # Перевіряємо, чи є гравець у списку особливих
-    if user_id in SPECIAL_USER_IDS:
+    # ---- ОСЬ ВИПРАВЛЕНА ПЕРЕВІРКА ----
+    if user.username and user.username.lower() in SPECIAL_USERNAMES:
         special_message = "\n\n✨ *О, бачу тут свої люди!* ✨\nВдалої гри!"
         join_text += special_message
 
-
-
-        
-        await update.message.reply_text(
-            f"⚠️ Ви вже приєдналися до гри {code}!",
-            reply_markup=reply_markup
-        )
+    await update.message.reply_text(
+        join_text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
         context.user_data['waiting_for_code'] = False
         return
     
