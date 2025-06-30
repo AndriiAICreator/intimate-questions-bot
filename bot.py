@@ -36,7 +36,7 @@ QUESTION_CATEGORIES = {
 
 # ID для особливих користувачів
 # !!! ЗАМІНІТЬ 123456789 НА ВАШ РЕАЛЬНИЙ TELEGRAM ID !!!
-SPECIAL_USER_IDS = {123456789} 
+SPECIAL_USER_IDS = {244416598} 
 
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
