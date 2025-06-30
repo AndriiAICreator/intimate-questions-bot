@@ -36,7 +36,7 @@ QUESTION_CATEGORIES = {
 
 # ID для особливих користувачів
 # !!! ЗАМІНІТЬ 123456789 НА ВАШ РЕАЛЬНИЙ TELEGRAM ID !!!
-SPECIAL_USER_IDS = {244416598} 
+SPECIAL_USER_IDS = {321612301} 
 
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
@@ -186,7 +186,7 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
     )
 
     if user_id in SPECIAL_USER_IDS:
-        special_message = "\n\n✨ *Бачу, головний на місці!* ✨\nГарної гри, бос!"
+        special_message = "\n\n✨ *ІРЦЯ ЧІТЕР, -1000 БАЛІВ НА СТАРТІ:)* ✨\nГарної гри, бос!"
         created_text += special_message
 
     await query.edit_message_text(
@@ -263,7 +263,7 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if user_id in SPECIAL_USER_IDS:
-        special_message = "\n\n✨ *О, бачу тут свої люди!* ✨\nВдалої гри!"
+        special_message = "\n\n✨ *ІРЦЯ ЧІТЕР, -1000 БАЛІВ НА СТАРТІ:)* ✨\nВдалої гри!"
         join_text += special_message
 
     await update.message.reply_text(
