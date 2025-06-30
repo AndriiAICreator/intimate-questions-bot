@@ -34,6 +34,9 @@ QUESTION_CATEGORIES = {
     }
 }
 
+# Імена особливих користувачів (обов'язково в нижньому регістрі!)
+SPECIAL_USERNAMES = {"apofickk"} # <-- Замініть на реальні імена без символу @
+
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
     IN_PROGRESS = "playing"
@@ -156,7 +159,7 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
         'state': GameStates.WAITING_FOR_PLAYERS,
         'players': [{'id': user_id, 'name': user_name}],
         'scores': {user_id: 0},
-        'category': category_key,  # Зберігаємо обрану категорію
+        'category': category_key,
         'current_question': None,
         'used_questions': [],
         'votes': {},
@@ -172,19 +175,29 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
     
     category_name = QUESTION_CATEGORIES[category_key]['name']
     
-    await query.edit_message_text(
+    # Формуємо текст повідомлення
+    created_text = (
         f"🎮 *Гру створено!*\n\n"
         f"🔑 *Код кімнати:* `{game_code}`\n"
         f"📚 *Категорія:* {category_name}\n\n"
         f"👤 *Створив:* {user_name}\n"
         f"👥 *Гравців:* 1\n\n"
         f"📋 Поділіться цим кодом з друзями!\n"
-        f"Мінімум потрібно 2 гравці для початку гри.",
+        f"Мінімум потрібно 2 гравці для початку гри."
+    )
+
+    # Перевіряємо, чи є творець у списку особливих
+    if user_id in SPECIAL_USER_IDS:
+        special_message = "\n\n✨ *Бачу, головний на місці!* ✨\nГарної гри, бос!"
+        created_text += special_message
+
+    await query.edit_message_text(
+        created_text,
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
 
-
+    
 async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приєднатися до гри"""
     query = update.callback_query
@@ -239,6 +252,15 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
+
+
+    # Перевіряємо, чи є гравець у списку особливих
+    if user_id in SPECIAL_USER_IDS:
+        special_message = "\n\n✨ *О, бачу тут свої люди!* ✨\nВдалої гри!"
+        join_text += special_message
+
+
+
         
         await update.message.reply_text(
             f"⚠️ Ви вже приєдналися до гри {code}!",
