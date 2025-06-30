@@ -224,7 +224,7 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     code = update.message.text.strip().upper()
-    user = update.message.from_user # Отримуємо об'єкт користувача
+    user = update.message.from_user
     user_name = user.first_name or "Гравець"
     
     # Перевірити чи існує гра
@@ -240,7 +240,7 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Перевірити чи користувач вже в грі
     if any(player['id'] == user.id for player in game['players']):
         keyboard = [[InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')], [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)  # <-- ОСЬ ВИПРАВЛЕННЯ
         await update.message.reply_text(f"⚠️ Ви вже приєдналися до гри {code}!", reply_markup=reply_markup)
         context.user_data['waiting_for_code'] = False
         return
@@ -265,7 +265,6 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Формуємо текст повідомлення
     join_text = (
         f"✅ *Успішно приєдналися до гри!*\n\n"
         f"🔑 *Код:* `{code}`\n"
@@ -273,7 +272,6 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Очікуйте поки створювач почне гру."
     )
 
-    # ---- ОСЬ ВИПРАВЛЕНА ПЕРЕВІРКА ----
     if user.username and user.username.lower() in SPECIAL_USERNAMES:
         special_message = "\n\n✨ *О, бачу тут свої люди!* ✨\nВдалої гри!"
         join_text += special_message
