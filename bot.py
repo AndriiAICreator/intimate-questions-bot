@@ -13,29 +13,26 @@ load_dotenv()
 # Глобальні змінні для зберігання даних
 games: Dict[str, dict] = {}
 all_questions: Dict[str, List[dict]] = {}
-all_prizes: Dict[str, List[str]] = {}
 
 # Конфігурація категорій питань
 QUESTION_CATEGORIES = {
     'intimate': {
         'name': '🔥 Інтимні питання',
         'file': 'questions.csv',
-        'prize_file': 'winner_prizes_intim.csv'
+        'description': 'Глибокі питання про інтимність та сексуальність'
     },
     'life': {
         'name': '🌟 Про життя',
         'file': 'life_questions.csv',
-        'prize_file': 'winner_prizes_life.csv'
+        'description': 'Філософські питання про щастя, мораль та сенс життя'
     },
     'cringe': {
         'name': '😅 Трохи крінжові питання',
         'file': 'cringe_questions.csv',
-        'prize_file': 'winner_prizes_krin.csv'
+        'description': 'Абсурдні та кумедні ситуації для сміху'
     }
 }
 
-# Імена особливих користувачів (обов'язково в нижньому регістрі!)
-SPECIAL_USERNAMES = {"apofickk"} # <-- ЗАМІНІТЬ НА РЕАЛЬНІ ІМЕНА
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
     IN_PROGRESS = "playing"
@@ -66,30 +63,6 @@ def load_questions():
 def generate_game_code() -> str:
     """Генерувати унікальний код гри"""
     return ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=6))
-
-
-def load_prizes():
-    """Завантажити призи для переможців з файлів категорій"""
-    global all_prizes
-    print("\nЗавантаження призів для переможців...")
-    for category_key, details in QUESTION_CATEGORIES.items():
-        prize_file = details.get('prize_file')
-        if not prize_file:
-            continue
-        try:
-            with open(prize_file, 'r', encoding='utf-8') as file:
-                reader = csv.DictReader(file)
-                # Припускаємо, що колонка з призом називається 'prize'
-                prizes = [row['prize'] for row in reader]
-                all_prizes[category_key] = prizes
-                print(f"✅ Завантажено {len(prizes)} призів для категорії '{details['name']}'")
-        except FileNotFoundError:
-            print(f"❌ Файл призів {prize_file} не знайдено!")
-            all_prizes[category_key] = []
-        except Exception as e:
-            print(f"❌ Помилка завантаження призів з {prize_file}: {e}")
-            all_prizes[category_key] = []
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start - головне меню"""
@@ -148,17 +121,17 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
         return
 
     game_code = generate_game_code()
-    user = query.from_user # Отримуємо об'єкт користувача
-    user_name = user.first_name or "Гравець"
+    user_id = query.from_user.id
+    user_name = query.from_user.first_name or "Гравець"
 
     # Створити нову гру
     games[game_code] = {
         'code': game_code,
-        'creator_id': user.id,
+        'creator_id': user_id,
         'state': GameStates.WAITING_FOR_PLAYERS,
-        'players': [{'id': user.id, 'name': user_name}],
-        'scores': {user.id: 0},
-        'category': category_key,
+        'players': [{'id': user_id, 'name': user_name}],
+        'scores': {user_id: 0},
+        'category': category_key,  # Зберігаємо обрану категорію
         'current_question': None,
         'used_questions': [],
         'votes': {},
@@ -174,29 +147,19 @@ async def create_game_with_category(update: Update, context: ContextTypes.DEFAUL
     
     category_name = QUESTION_CATEGORIES[category_key]['name']
     
-    # Формуємо текст повідомлення
-    created_text = (
+    await query.edit_message_text(
         f"🎮 *Гру створено!*\n\n"
         f"🔑 *Код кімнати:* `{game_code}`\n"
         f"📚 *Категорія:* {category_name}\n\n"
         f"👤 *Створив:* {user_name}\n"
         f"👥 *Гравців:* 1\n\n"
         f"📋 Поділіться цим кодом з друзями!\n"
-        f"Мінімум потрібно 2 гравці для початку гри."
-    )
-
-    # ---- ОСЬ ВИПРАВЛЕНА ПЕРЕВІРКА ----
-    if user.username and user.username.lower() in SPECIAL_USERNAMES:
-        special_message = "\n\n✨ *Бачу, головний на місці!* ✨\nГарної гри, бос!"
-        created_text += special_message
-
-    await query.edit_message_text(
-        created_text,
+        f"Мінімум потрібно 2 гравці для початку гри.",
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
 
-    
+
 async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приєднатися до гри"""
     query = update.callback_query
@@ -224,63 +187,38 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     code = update.message.text.strip().upper()
-    user = update.message.from_user
-    user_name = user.first_name or "Гравець"
+    user_id = update.message.from_user.id
+    user_name = update.message.from_user.first_name or "Гравець"
     
     # Перевірити чи існує гра
     if code not in games:
-        keyboard = [[InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
+        keyboard = [
+            [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("❌ Гра з таким кодом не знайдена!\nПеревірте код і спробуйте ще раз.", reply_markup=reply_markup)
+        
+        await update.message.reply_text(
+            "❌ Гра з таким кодом не знайдена!\n"
+            "Перевірте код і спробуйте ще раз.",
+            reply_markup=reply_markup
+        )
         context.user_data['waiting_for_code'] = False
         return
     
     game = games[code]
     
     # Перевірити чи користувач вже в грі
-    if any(player['id'] == user.id for player in game['players']):
-        keyboard = [[InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')], [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)  # <-- ОСЬ ВИПРАВЛЕННЯ
-        await update.message.reply_text(f"⚠️ Ви вже приєдналися до гри {code}!", reply_markup=reply_markup)
-        context.user_data['waiting_for_code'] = False
-        return
-    
-    # Перевірити стан гри
-    if game['state'] != GameStates.WAITING_FOR_PLAYERS:
-        keyboard = [[InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]]
+    if any(player['id'] == user_id for player in game['players']):
+        keyboard = [
+            [InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')],
+            [InlineKeyboardButton("🏠 Головне меню", callback_data='back_to_menu')]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("❌ Ця гра вже почалася або завершилася!", reply_markup=reply_markup)
-        context.user_data['waiting_for_code'] = False
-        return
-    
-    # Додати гравця
-    game['players'].append({'id': user.id, 'name': user_name})
-    game['scores'][user.id] = 0
-    
-    context.user_data['waiting_for_code'] = False
-    
-    keyboard = [
-        [InlineKeyboardButton("👥 Переглянути гравців", callback_data=f'show_players_{code}')],
-        [InlineKeyboardButton("🔄 Назад до меню", callback_data='back_to_menu')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    join_text = (
-        f"✅ *Успішно приєдналися до гри!*\n\n"
-        f"🔑 *Код:* `{code}`\n"
-        f"👥 *Гравців:* {len(game['players'])}\n\n"
-        f"Очікуйте поки створювач почне гру."
-    )
-
-    if user.username and user.username.lower() in SPECIAL_USERNAMES:
-        special_message = "\n\n✨ *О, бачу тут свої люди!* ✨\nВдалої гри!"
-        join_text += special_message
-
-    await update.message.reply_text(
-        join_text,
-        parse_mode='Markdown',
-        reply_markup=reply_markup
-    )
+        
+        await update.message.reply_text(
+            f"⚠️ Ви вже приєдналися до гри {code}!",
+            reply_markup=reply_markup
+        )
         context.user_data['waiting_for_code'] = False
         return
     
@@ -295,8 +233,8 @@ async def handle_join_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Ця гра вже почалася або завершилася!",
             reply_markup=reply_markup
         )
-      #  context.user_data['waiting_for_code'] = False
-      #  return
+        context.user_data['waiting_for_code'] = False
+        return
     
     # Додати гравця
     game['players'].append({'id': user_id, 'name': user_name})
@@ -556,7 +494,7 @@ async def skip_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_game_round(update, context)
 
 async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_code: str = None):
-    """Завершити гру та показати результати з призом для переможця"""
+    """Завершити гру"""
     if not game_code:
         query = update.callback_query
         await query.answer()
@@ -574,33 +512,14 @@ async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_c
     final_results = sorted(game['scores'].items(), key=lambda x: x[1], reverse=True)
     
     results_text = f"🎉 *ФІНАЛЬНІ РЕЗУЛЬТАТИ ГРИ {game_code}*\n\n"
-    winner_name = "Ніхто"
     
-    if final_results:
-        winner_id = final_results[0][0]
-        winner_name = next((player['name'] for player in game['players'] if player['id'] == winner_id), "Невідомий")
-
     for i, (player_id, score) in enumerate(final_results):
         player_name = next(player['name'] for player in game['players'] if player['id'] == player_id)
         medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "🏅"
         results_text += f"{medal} {i+1}. {player_name}: {score} балів\n"
     
-    results_text += f"\n🎯 Всього було {game['round_number']} раундів."
-
-    # --- Логіка додавання призу ---
-    category_key = game.get('category')
-    prizes_for_category = all_prizes.get(category_key, [])
-    
-    if prizes_for_category:
-        random_prize = random.choice(prizes_for_category)
-        prize_text = (
-            f"\n\n🏆 *Приз для переможця, {winner_name}!* 🏆\n\n"
-            f"_{random_prize}_"
-        )
-        results_text += prize_text
-    # --- Кінець логіки призу ---
-
-    results_text += f"\n\n🎮 Дякуємо за гру!"
+    results_text += f"\n🎯 Всього було {game['round_number']} раундів\n"
+    results_text += f"🎮 Дякуємо за гру!"
     
     keyboard = [
         [InlineKeyboardButton("🔄 Нова гра", callback_data='create_game')],
@@ -621,8 +540,7 @@ async def finish_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_c
             print(f"Не вдалося надіслати фінальні результати гравцю {player['id']}: {e}")
     
     # Видалити гру з пам'яті
-    if game_code in games:
-        del games[game_code]
+    del games[game_code]
 
 async def show_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показати правила гри"""
@@ -717,7 +635,6 @@ def main():
     """Головна функція запуску бота"""
     # Завантажити питання
     load_questions()
-    load_prizes()
     
     # Отримати токен з environment
     token = os.getenv('BOT_TOKEN')
