@@ -35,7 +35,7 @@ QUESTION_CATEGORIES = {
 }
 
 # Імена особливих користувачів (обов'язково в нижньому регістрі!)
-SPECIAL_USERNAMES = {"apofickk"} # <-- Замініть на реальні імена без символу @
+SPECIAL_USER_IDS = {"apofickk"} # <-- Замініть на реальні імена без символу @
 
 class GameStates:
     WAITING_FOR_PLAYERS = "waiting"
